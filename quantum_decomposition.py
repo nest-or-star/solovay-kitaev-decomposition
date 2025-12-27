@@ -313,3 +313,15 @@ def approximate_depth(U_target: np.ndarray, target_error: float, short_circuits:
 # Funkcija "pārbaude, vai matrica ir unitāra"
 def is_unitary(U: np.ndarray, tol: float = 1e-10) -> bool:
     return np.allclose(U.conj().T @ U, np.eye(U.shape[0]), atol=tol)
+
+# Funkcija "saskaņot fāzi"
+# pielāgo dotā unitārā operatora globālo fāzi, lai tā atbilstu mērķa operatoram
+def align_phase(U: np.ndarray, target: np.ndarray) -> np.ndarray:
+    target_phase = np.angle(np.linalg.det(target)) / 2
+    V, _ = remove_global_phase(U)
+    return add_global_phase(V, target_phase)
+
+
+# Testa bloks
+if __name__ == "__main__":
+    pass
