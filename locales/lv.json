@@ -18,10 +18,10 @@
     "imaginary": "Imaginārā daļa",
     "apply": "Apstiprināt",
     "decomp_step": "Dekompozīcijas solis",
-    "circuit_diagram": "Ķēdes diagramma",
+    "circuit_diagram": "Kvantu shēmas diagramma",
     "precision_change": "Precizitātes izmaiņas dekompozīcijas laikā",
     "performance_metrics": "Veiktspējas rādītāji",
-    "circuit_depth": "Ķēdes dziļums",
+    "circuit_depth": "Shēmas dziļums",
     "num_gates": "Vārtu skaits",
     "precision_achieved": "Sasniegtā precizitāte",
     "num_qubits": "Kubitu skaits",
@@ -31,10 +31,10 @@
     "success_sk": "Soloveja-Kitaeva dekompozīcija pabeigta.",
     "success_h_t": "H + T vārtu kopa izveidota.",
     "loaded": "Ielādēja",
-    "short_circuits": "pamatķēdes.",
+    "short_circuits": "pamatshēmas.",
     "not_unitary": "Ievadītā matrica nav unitāra!",
     "select_language": "Valoda",
     "specify_precision": "Lūdzu, norādiet vai nu precizitāti, vai rekursijas dziļumu.",
     "invalid_input": "Nederīga ievade.",
-    "circuit_too_large": "Ķēde ir pārāk liela, lai to attēlotu."
+    "circuit_too_large": "Shēma ir pārāk liela, lai to attēlotu."
 }

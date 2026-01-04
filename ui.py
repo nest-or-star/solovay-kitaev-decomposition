@@ -176,8 +176,7 @@ def launch_solovay_kitaev(epsilon: float|None, recursion_depth: int|None, max_le
     # Veiksmīgi palaiž dekompozīciju
 
     bar = st.progress(
-        value=0.0,
-        text=get_text("running_sk"))
+        value=0.0)
 
     gate_set = qd.create_h_t_gate_set()
     bar.progress(0.0, text=get_text("success_h_t"))
