@@ -245,9 +245,7 @@ def gc_decomposition(U_target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 # atrod atbilstošo S, ja ir zināmi V un W
 def solve_unitary_conjugate(V: np.ndarray, W: np.ndarray) -> np.ndarray:
     eigvals_V, S_V = np.linalg.eig(V)
-    print( eigvals_V)
     eigvals_W, S_W = np.linalg.eig(W)
-    print( eigvals_W)
 
     # īpašvērtībām jāskarīt, bet tās var būt dažādā secībā
     if not np.allclose(eigvals_V[0], eigvals_W[0]):

@@ -105,6 +105,7 @@ def load_sidebar() -> None:
                 min_value=0.00001, max_value=2.0,
                 value=0.01,
                 format="%.5f",
+                step=0.00001,
                 label_visibility="collapsed")
             recursion_depth = None
 
@@ -138,6 +139,41 @@ def launch_rotation_decomp() -> None:
 
 # Funkcija, kas pārvalda Soloveja-Kitaeva dekompozīcijas palaišanu un rezultātu saglabāšanu
 def launch_solovay_kitaev(epsilon: float|None, recursion_depth: int|None, max_length: int) -> None:
+
+    # Validācija
+    if epsilon is None and recursion_depth is None: # nav neviena veida precizitāte
+        st.error(get_text("specify_precision"))
+        return
+    
+    if epsilon is not None and recursion_depth is not None: # ir abu veidu precizitāte
+        st.error(get_text("specify_precision"))
+        return
+    
+    if (epsilon is not None and type(epsilon) != float):
+        st.error(get_text("invalid_input"))
+        return
+    
+    if (recursion_depth is not None and type(recursion_depth) != int):
+        st.error(get_text("invalid_input"))
+        return
+    
+    if type(max_length) != int:
+        st.error(get_text("invalid_input"))
+        return
+
+    if epsilon is not None and (epsilon < 0.00001 or epsilon > 2): # epsilon ārpus robežām
+        st.error(get_text("invalid_input"))
+        return
+    
+    if epsilon is None and (recursion_depth < 0 or recursion_depth > 5): # rekursijas dziļums ārpus robežām
+        st.error(get_text("invalid_input"))
+        return
+    
+    if max_length < 1 or max_length > 20: # maksimālais garums ārpus robežām
+        st.error(get_text("invalid_input"))
+        return
+
+    # Veiksmīgi palaiž dekompozīciju
 
     bar = st.progress(
         value=0.0,
@@ -189,8 +225,11 @@ def load_results() -> None:
         with mid:
             # Kvantu ķēde
             st.subheader(get_text("circuit_diagram"))
-            fig_circuit = qc.draw(output='mpl')
-            st.pyplot(fig_circuit)
+            if qc.size() > 1500:
+                st.warning(get_text("circuit_too_large"))
+            else:
+                fig_circuit = qc.draw(output='mpl')
+                st.pyplot(fig_circuit)
 
             # Precizitātes grafiks
             if len(history) > 1:
