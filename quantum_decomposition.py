@@ -88,13 +88,16 @@ def load_short_circuits(gate_set: list[QuantumCircuit], max_length: int) -> list
     for (gate) in gate_set:
         filename += gate.name + "_"
     filename += f"mxl_{max_length}.pkl"
+    file_path = os.path.join("pickles", filename)
 
-    if os.path.exists(filename):
-        with open(filename, 'rb') as f:
+    if os.path.exists(file_path):
+        with open(file_path, 'rb') as f:
+            print("Ielādē īsās ķēdes no faila:", filename)
             short_circuits = pickle.load(f)
     else:
+        print("Ģenerē jaunas īsās ķēdes un saglabā failā:", filename)
         short_circuits = generate_short_circuits(gate_set, max_length)
-        with open(filename, 'wb') as f:
+        with open(file_path, 'wb') as f:
             pickle.dump(short_circuits, f)
 
     return short_circuits
@@ -348,6 +351,6 @@ def align_phase(U: np.ndarray, target: np.ndarray) -> np.ndarray:
 
 # Testa bloks
 if __name__ == "__main__":
-    V = X
-    W = Z
-    print(solve_unitary_conjugate(V, W))
+    gate_set = create_h_t_gate_set()
+    max_length = 10
+    short_circuits = load_short_circuits(gate_set, max_length)
