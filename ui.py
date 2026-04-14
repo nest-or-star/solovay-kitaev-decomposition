@@ -1,3 +1,5 @@
+from typing import Any
+
 import streamlit as st
 import numpy as np
 from qiskit import QuantumCircuit
@@ -7,101 +9,102 @@ import quantum_decomposition as qd
 import json
 import os
 
+# Function
+# Fetches the translation with the given key
+def _loc(key: str) -> str:
+    return st.session_state.translations.get(key, f"NO TRANSLATION: {key}")
 
-# Galvenā funkcija, kas inicializē pamatdatus un lietotāja saskarni.
+# Function
+# Loads JSON translation file and stores in cache memory
+# Translations are stored in "/locales"
+@st.cache_data
+def load_translations(language_code: str) -> Any:
+    file_path = os.path.join("locales", f"{language_code}.json")
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    except FileNotFoundError:
+        st.error(f"No locales found: {file_path}")
+        return {}
+
+
+# MAIN Function
+# Initializes the UI
 def main() -> None:
 
     load_target_unitary()
     load_language()
 
     st.set_page_config(
-        page_title=get_text("page_title"),
+        page_title=_loc("page_title"),
         layout="wide")
-    st.title(get_text("main_title"))
+    st.title(_loc("main_title"))
 
+    # Input fields
     load_sidebar()
+    # Main page
     load_results()
 
-
-# Funkcija, kas ielādē tulkojumus no JSON failiem
-# un kešatmiņā saglabā tos, lai uzlabotu veiktspēju.
-# tulkojumi atrodas mapē "locales"
-@st.cache_data
-def load_translations(language_code):
-    file_path = os.path.join("locales", f"{language_code}.json")
-
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-        
-    except FileNotFoundError:
-        st.error(f"Tulkojumi nav atrasti: {file_path}")
-        return {}
-
-
-# Funkcija, kas iegūst tulkoto tekstu pēc atslēgas
-def get_text(key):
-    return st.session_state.translations.get(key, f"NAV TULKOJUMA: {key}")
-
-
-# Funkcija, kas uzstāda noklusējuma unitāro matricu
+# Function
+# If no target unitary stored, loads an identity matrix
 def load_target_unitary() -> None:
     if "U_target" not in st.session_state:
-        st.session_state.U_target = np.eye(2, dtype=complex) # Noklusējuma unitārā matrica
+        st.session_state.u_target = np.eye(2, dtype=complex)
 
-
-# Funkcija, kas ielādē un pārvalda valodas izvēli
+# Function
+# Manages the choice of localization
 def load_language() -> None:
-    # Noklusējuma valoda ir latviešu
+    # Default is Latvian
     if "lang" not in st.session_state:
         st.session_state["lang"] = "lv"
 
-    # Valodas izvēle sānjoslā
-    lang_choice = st.sidebar.selectbox(
+    lang_choice = str(st.sidebar.segmented_control(
         "Valoda / Language",
-        ["lv", "en"], 
-        index = 0 if st.session_state["lang"] == "lv" else 1)
+        ["LV", "EN"],
+        index = 0 if st.session_state["lang"] == "lv" else 1)).lower()
 
-    # Ja valoda ir mainīta, atjaunina sesijas stāvokli un pārlādē lapu
+    # If changed, reloads page
     if lang_choice != st.session_state["lang"]:
         st.session_state["lang"] = lang_choice
         st.rerun()
 
-    # Saglabā tulkojumus sesijas stāvoklī
     st.session_state.translations = load_translations(st.session_state["lang"])
 
-
-# Funkcija, kas izveido sānjoslu ar lietotāja ievadi
+# Function
+# Sets up the sidebar for user input
 def load_sidebar() -> None:
     st.sidebar.header(
-        get_text("sidebar_header"))
-    mode = st.sidebar.radio( # dekompozīcijas režīma izvēle
-        get_text("decomp_type"),
-        [get_text("rotation_h_rz"), get_text("solovay_kitaev_h_t")])
+        _loc("sidebar_header"))
+    mode = st.sidebar.radio( # mode
+        _loc("decomp_type"),
+        [_loc("rotation_h_rz"), _loc("solovay_kitaev_h_t")])
 
-    # Matricas skatīšana un rediģēšana
-    with st.sidebar.expander(get_text("view_unitary")):
-        st.write(st.session_state.U_target)
+    # Matrix viewing and editing
+    with st.sidebar.expander(_loc("view_unitary")):
+        st.write(st.session_state.u_target)
 
-        if st.button(get_text("edit")):
+        if st.button(_loc("edit")):
             input_unitary(1)
 
-    # Rotācijas dekompozīcijas režīms
-    if mode == get_text("rotation_h_rz"):
-        if st.sidebar.button(get_text("run")):
+    # Rotation H+Rz decomposition mode
+    if mode == _loc("rotation_h_rz"):
+        if st.sidebar.button(_loc("run")):
             launch_rotation_decomp()
     
-    # Soloveja-Kitaeva dekompozīcijas režīms
+    # Solovay-Kitaev algorithm mode
     else:
-        st.sidebar.subheader(get_text("sk_params"))
-        precision_mode = st.sidebar.radio( # precizitātes režīma izvēle
-            get_text("precision_mode"),
-            [get_text("precision"), get_text("recursion_depth")],
+        st.sidebar.subheader(_loc("sk_params"))
+        precision_mode = st.sidebar.radio( # target metric
+            _loc("precision_mode"),
+            [_loc("precision"), _loc("recursion_depth")],
             label_visibility="collapsed")
 
-        if precision_mode == get_text("precision"):
-            target_epsilon = st.sidebar.number_input( # precizitātes ievade
-                get_text("precision"),
+        # Max error mode
+        if precision_mode == _loc("precision"):
+            target_epsilon = st.sidebar.number_input(
+                _loc("precision"),
                 min_value=0.00001, max_value=2.0,
                 value=0.01,
                 format="%.5f",
@@ -109,165 +112,212 @@ def load_sidebar() -> None:
                 label_visibility="collapsed")
             recursion_depth = None
 
+        # Recursion depth mode
         else:
-            recursion_depth = st.sidebar.number_input( # rekursijas dziļuma ievade
-                get_text("recursion_depth"),
+            recursion_depth = st.sidebar.number_input(
+                _loc("recursion_depth"),
                 min_value=0, max_value=5,
                 value=2,
                 label_visibility="collapsed")
             target_epsilon = None
 
-        max_length = st.sidebar.number_input( # maksimālā pamatķēžu garuma ievade
-            get_text("max_length"),
+        # Maximum length of base circuits
+        max_length = st.sidebar.number_input(
+            _loc("max_length"),
             min_value=1, max_value=20,
             value=12)
 
-        if st.sidebar.button(get_text("run")):
+        if st.sidebar.button(_loc("run")):
             launch_solovay_kitaev(target_epsilon, recursion_depth, max_length)
 
-
-# Funkcija, kas pārvalda rotācijas dekompozīcijas palaišanu un rezultātu saglabāšanu
+# Function
+# Calls rotation H+Rz decomposition and saves the results
+# Streamlit reruns automatically and loads results from the updated session state
 def launch_rotation_decomp() -> None:
     qc, precision = qd.rotation_decomposition(st.session_state.U_target)
 
-    st.success(get_text("success_rotation"))
-    # Saglabā rezultātus sesijas stāvoklī
+    st.success(_loc("success_rotation"))
     st.session_state.qc = qc
     st.session_state.precision = precision
     st.session_state.history = []
 
+# Function
+# Calls Solovay-Kitaev decomposition and saves the results
+# Streamlit reruns automatically and loads results from the updated session state
+def launch_solovay_kitaev(epsilon: float|None,
+                          recursion_depth: int|None,
+                          max_length: int) -> None:
 
-# Funkcija, kas pārvalda Soloveja-Kitaeva dekompozīcijas palaišanu un rezultātu saglabāšanu
-def launch_solovay_kitaev(epsilon: float|None, recursion_depth: int|None, max_length: int) -> None:
-
-    # Validācija
-    if epsilon is None and recursion_depth is None: # nav neviena veida precizitāte
-        st.error(get_text("specify_precision"))
+    # Validation
+    if epsilon is None and recursion_depth is None: # no target metric specified
+        st.error(_loc("specify_precision"))
         return
     
-    if epsilon is not None and recursion_depth is not None: # ir abu veidu precizitāte
-        st.error(get_text("specify_precision"))
+    if epsilon is not None and recursion_depth is not None: # both target metrics specified
+        st.error(_loc("specify_precision"))
         return
     
-    if (epsilon is not None and type(epsilon) != float):
-        st.error(get_text("invalid_input"))
+    if epsilon is not None and type(epsilon) != float: # wrong type
+        st.error(_loc("invalid_input"))
         return
     
-    if (recursion_depth is not None and type(recursion_depth) != int):
-        st.error(get_text("invalid_input"))
+    if recursion_depth is not None and type(recursion_depth) != int: # wrong type
+        st.error(_loc("invalid_input"))
         return
     
-    if type(max_length) != int:
-        st.error(get_text("invalid_input"))
-        return
-
-    if epsilon is not None and (epsilon < 0.00001 or epsilon > 2): # epsilon ārpus robežām
-        st.error(get_text("invalid_input"))
-        return
-    
-    if epsilon is None and (recursion_depth < 0 or recursion_depth > 5): # rekursijas dziļums ārpus robežām
-        st.error(get_text("invalid_input"))
-        return
-    
-    if max_length < 1 or max_length > 20: # maksimālais garums ārpus robežām
-        st.error(get_text("invalid_input"))
+    if type(max_length) != int: # wrong type
+        st.error(_loc("invalid_input"))
         return
 
-    # Veiksmīgi palaiž dekompozīciju
+    if epsilon is not None and (epsilon < 0.00001 or epsilon > 2): # max error out of bounds
+        st.error(_loc("invalid_input"))
+        return
+    
+    if epsilon is None and (recursion_depth < 0 or recursion_depth > 5): # recursion depth out of bounds
+        st.error(_loc("invalid_input"))
+        return
+    
+    if max_length < 1 or max_length > 20: # max length out of bounds
+        st.error(_loc("invalid_input"))
+        return
+
+    # Successfully launches decomposition
 
     bar = st.progress(
         value=0.0)
 
-    gate_set = qd.create_h_t_gate_set()
-    bar.progress(0.0, text=get_text("success_h_t"))
+    gate_set = qd.ht_gate_set()
+    bar.progress(0.0, text=_loc("success_h_t"))
 
-    short_circuits = qd.load_short_circuits(gate_set, max_length)
-    bar.progress(0.0, text=f"{get_text("loaded")} {len(short_circuits)} {get_text("short_circuits")}") # "Ielādētas X pamatķēdes"
+    base_circuits = qd.load_base_circuits(gate_set, max_length)
+    bar.progress(0.0, text=f"{_loc("loaded")} {len(base_circuits)} {_loc("short_circuits")}") # "Ielādētas X pamatķēdes"
 
-    # Dota precizitāte
+    # Max error is given
     if epsilon is not None:
-        progress_info = [bar, sum([3**i for i in range(7)]), 0] # progresa josla + kopējais soļu skaits + sākums
-        qc_0, _ = qd.base_approximation(st.session_state.U_target, short_circuits)
-        qc, precision, history = qd.solovay_kitaev_reverse(st.session_state.U_target, qc_0, epsilon, short_circuits, progress_info)
+        progress_info = [bar, sum([3**i for i in range(7)]), 0] # progress bar + total steps + first step
+        qc_0, _ = qd.base_approximation(st.session_state.u_target, base_circuits)
+        qc, precision, history = qd.solovay_kitaev_reverse(st.session_state.u_target,
+                                                           qc_0, epsilon,
+                                                           base_circuits, progress_info)
 
-    # Dots rekursijas dziļums
+    # Recursion depth is given
     if recursion_depth is not None:
-        progress_info = [bar, sum([3**i for i in range(recursion_depth+1)]), 0] # progresa josla + kopējais soļu skaits + sākums
-        qc, precision, history = qd.solovay_kitaev_decomposition(st.session_state.U_target, recursion_depth, short_circuits, progress_info)
+        progress_info = [bar, sum([3**i for i in range(recursion_depth+1)]), 0] # progress bar + total steps + first step
+        qc, precision, history = qd.solovay_kitaev_decomposition(st.session_state.u_target,
+                                                                 recursion_depth,
+                                                                 base_circuits,
+                                                                 progress_info)
 
-    st.success(get_text("success_sk"))
-    # Saglabā rezultātus sesijas stāvoklī
+    st.success(_loc("success_sk"))
     st.session_state.qc = qc
     st.session_state.precision = precision
     st.session_state.history = history
 
 
-# Funkcija, kas parāda rezultātus lietotājam
+# Function
+# Builds the result page
 def load_results() -> None:
-    # Ja rezultāti ir pieejami, parāda tos lietotājam
+    # If decomposition is complete then qc, precision, history are in session state
     if 'qc' in st.session_state:
         history = st.session_state.get('history', [])
 
-        if len(history) > 1: # ja ir vēsture, ļauj izvēlēties soli
+        # History slider
+        if len(history) > 1:
             idx = st.slider(
-                get_text("decomp_step"),
+                _loc("decomp_step"),
                 min_value=0, max_value=len(history)-1,
                 value=len(history)-1)
             qc = history[idx]
-            precision = qd.compare_su2(st.session_state.U_target, Operator(qc).data)
+            precision = qd.compare_su2(st.session_state.u_target, Operator(qc).data)
 
         else:
             qc = st.session_state.qc
             precision = st.session_state.precision
 
-        _, mid, _ = st.columns([1, 6, 1]) # centrē diagrammu
+        _, mid, _ = st.columns([1, 6, 1]) # centers the graphics
         with mid:
-            # Kvantu ķēde
-            st.subheader(get_text("circuit_diagram"))
+            # Quantum circuit
+            st.subheader(_loc("circuit_diagram"))
             if qc.size() > 1500:
-                st.warning(get_text("circuit_too_large"))
+                st.warning(_loc("circuit_too_large"))
             else:
                 fig_circuit = qc.draw(output='mpl')
                 st.pyplot(fig_circuit)
 
-            # Precizitātes grafiks
+            # Precision (=error) plot
             if len(history) > 1:
                 st.divider()
-                st.subheader(get_text("precision_change"))
-                precisions = [qd.compare_su2(st.session_state.U_target, Operator(circ).data) for circ in history]
+                st.subheader(_loc("precision_change"))
+                precisions = [qd.compare_su2(st.session_state.u_target, Operator(circ).data) for circ in history]
                 fig, ax = plt.subplots()
                 ax.plot(range(len(precisions)), precisions, marker='o')
-                ax.set_xlabel(get_text("decomp_step"))
-                ax.set_ylabel(get_text("precision"))
+                ax.set_xlabel(_loc("decomp_step"))
+                ax.set_ylabel(_loc("precision"))
                 ax.set_yscale("log")
                 ax.set_xticks(range(len(precisions)))
                 st.pyplot(fig)
 
         st.divider()
-        # Veiktspējas rādītāji
-        st.subheader(get_text("performance_metrics"))
+        # Circuit metrics
+        st.subheader(_loc("performance_metrics"))
         m_col1, m_col2, m_col3, m_col4 = st.columns(4)
 
-        m_col1.metric(get_text("num_gates"), qc.size())
-        m_col2.metric(get_text("circuit_depth"), qc.depth())
-        m_col3.metric(get_text("num_qubits"), qc.num_qubits)
-        m_col4.metric(get_text("precision_achieved"), f"{precision:.2e}")
+        m_col1.metric(_loc("num_gates"), qc.size())
+        m_col2.metric(_loc("circuit_depth"), qc.depth())
+        m_col3.metric(_loc("num_qubits"), qc.num_qubits)
+        m_col4.metric(_loc("precision_achieved"), f"{precision:.2e}")
 
-        with st.expander(get_text("view_unitary")):
-            U = qd.align_phase(Operator(qc).data, st.session_state.U_target)
-            U = np.round(U, decimals=6) # noapaļo, lai uzlabotu lasāmību
-            st.write(U)
+        with st.expander(_loc("view_unitary")):
+            u = qd.align_phase(Operator(qc).data, st.session_state.u_target)
+            u = np.round(u, decimals=6) # rounds for readability
+            st.write(u)
 
-    # Ja rezultāti nav pieejami, parāda informācijas ziņojumu
+    # If decomposition is not complete:
     else:
-        st.info(get_text("please_start"))
+        st.info(_loc("please_start"))
 
 
-# Funkcija, kas definē logu unitārās matricas ievadei
-# un tās validāciju
+# Function
+# Matrix editing pop-up window
 @st.dialog("Ievads / Input", width="medium")
 def input_unitary(num_qubits: int) -> None:
-    st.subheader(get_text("input_unitary"))
+    st.subheader(_loc("input_unitary"))
+
+    # Apakšfunkcija, kas nolasa ievadīto matricu
+    def read_input_unitary(dim):
+        U_temp = np.zeros((dim, dim), dtype=complex)
+        # Izveido matricu no ievadītajām vērtībām
+        for (i) in range(dim):
+            for (j) in range(dim):
+                real_part = st.session_state[f"real_{i}_{j}"]
+                imag_part = st.session_state[f"imag_{i}_{j}"]
+                U_temp[i, j] = complex(real_part, imag_part)
+        
+        return U_temp
+    # ---
+
+    # Apakšfunkcija, kas nolasa ievadīto matricu
+    def write_input_unitary(dim, U):
+        for (i) in range(dim):
+            for (j) in range(dim):
+                st.session_state[f"real_{i}_{j}"] = np.real(U[i, j])
+                st.session_state[f"imag_{i}_{j}"] = np.imag(U[i, j])
+    # ---
+
+    # Apakšfunkcija, kas validē matricu
+    def attempt_save(U):
+        if qd.is_unitary(U):
+            st.session_state.U_target = U
+            if 'qc' in st.session_state: # notīra iepriekšējos rezultātus
+                del st.session_state['qc']
+                del st.session_state['precision']
+                del st.session_state['history']
+            st.rerun()
+
+        else:
+            st.error(_loc("not_unitary"))
+    # ---
+
 
     U_target = st.session_state.U_target
     dim = 2**num_qubits # pamats paplašināšanai līdz vairākiem kubitiem
@@ -278,34 +328,40 @@ def input_unitary(num_qubits: int) -> None:
         for (j, col) in enumerate(row):
             cell = col.container(border=True, horizontal=True, vertical_alignment="center", horizontal_alignment="distribute")
 
-            real_part = cell.number_input(label=f"{get_text("real")} U[{i},{j}]", min_value=-1., max_value=1., key=f"real_{i}_{j}",
-                                        value=float(U_target[i, j].real), format="%.6f", width=90, label_visibility="collapsed")
+            real_part = cell.number_input(label=f"{_loc("real")} U[{i},{j}]", min_value=-1., max_value=1., key=f"real_{i}_{j}",
+                                          value=float(U_target[i, j].real), format="%.6f", width=90, label_visibility="collapsed")
             cell.markdown("**+**", width="content")
-            imag_part = cell.number_input(label=f"{get_text("imaginary")} U[{i},{j}]", min_value=-1., max_value=1., key=f"imag_{i}_{j}",
-                                        value=float(U_target[i, j].imag), format="%.6f", width=90, label_visibility="collapsed")
+            imag_part = cell.number_input(label=f"{_loc("imaginary")} U[{i},{j}]", min_value=-1., max_value=1., key=f"imag_{i}_{j}",
+                                          value=float(U_target[i, j].imag), format="%.6f", width=90, label_visibility="collapsed")
             cell.markdown("**i**", width="content")
 
+    # Rotācijas pogas
+    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+
+    angle = col1.number_input(label="angle", value=0.0, format="%.6f", label_visibility="collapsed")
+
+    if col2.button("X"):
+        U_temp = read_input_unitary(dim)
+        R = qd.rotation_matrix(np.array([1,0,0]), angle)
+        write_input_unitary(dim, R @ U_temp)
+
+    if col3.button("Y"):
+        U_temp = read_input_unitary(dim)
+        R = qd.rotation_matrix(np.array([0,1,0]), angle)
+        write_input_unitary(dim, R @ U_temp)
+
+    if col4.button("Z"):
+        U_temp = read_input_unitary(dim)
+        R = qd.rotation_matrix(np.array([0,0,1]), angle)
+        write_input_unitary(dim, R @ U_temp)
+
     # Validācija
-    if st.button(get_text("apply")):
-        U_temp = np.zeros((dim, dim), dtype=complex)
-        # Izveido matricu no ievadītajām vērtībām
-        for (i) in range(dim):
-            for (j) in range(dim):
-                real_part = st.session_state[f"real_{i}_{j}"]
-                imag_part = st.session_state[f"imag_{i}_{j}"]
-                U_temp[i, j] = complex(real_part, imag_part)
+    if st.button(_loc("apply")):
+        U_temp = read_input_unitary(dim)
 
-        if qd.is_unitary(U_temp):
-            st.session_state.U_target = U_temp
-            if 'qc' in st.session_state: # notīra iepriekšējos rezultātus
-                del st.session_state['qc']
-                del st.session_state['precision']
-                del st.session_state['history']
-            st.rerun()
+        attempt_save(U_temp)
 
-        else:
-            st.error(get_text("not_unitary"))
 
-# Galvenais izpildes punkts
+# Entry point
 if __name__ == "__main__":
     main()

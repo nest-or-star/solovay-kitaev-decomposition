@@ -7,9 +7,8 @@ import streamlit as st
 import os
 import pickle
 
-
-# Konstantes
-# Pauli matricas 
+# CONSTANTS
+# Pauli matrices
 I = np.eye(2, dtype=complex)
 X = np.array([[0, 1], [1, 0]], complex)
 Y = np.array([[0, -1j], [1j, 0]], complex)
@@ -17,8 +16,9 @@ Z = np.array([[1, 0], [0, -1]], complex)
 PAULI_BASE = [X, Y, Z]
 
 
-# Funkcija, kas izveido H+T vārtu kopu 1 kubita dekompozīcijai.
-def create_h_t_gate_set() -> list[QuantumCircuit]:
+# Function
+# Initiates the H+T gate set to make the base approximation list
+def ht_gate_set() -> list[QuantumCircuit]:
     gate_set = []
 
     gate_set.append(QuantumCircuit(1))
@@ -34,56 +34,57 @@ def create_h_t_gate_set() -> list[QuantumCircuit]:
     return gate_set
 
 
-# Funkcija, kas izveido īsas 1 kubita ķēdes līdz noteiktam garumam, izmantojot doto vārtu kopu.
-# Katrs elements ir kortežs:
-# - QuantumCircuit objekts, tiek izmantots dekompozīcijas saglabāšanai;
-# - matricas forma (numpy array), tiek izmantota dekompozīcijas aprēķināšanai.
-def generate_short_circuits(gate_set: list, max_length: int) -> list[tuple[QuantumCircuit, np.ndarray]]:
-    short_circuits = []
-    short_circuits_by_len = [[] for (_) in range(max_length)]
+# Function
+# Generates short 1 qubit circuits up to a defined length from the given gate set
+# Each element is a tuple:
+# - QuantumCircuit - to build the decomposition
+# - matrix form (numpy array) - to perform calculations
+def generate_base_circuits(gate_set: list, max_length: int) -> list[tuple[QuantumCircuit, np.ndarray]]:
+    base_circuits = []
+    groups_by_len = [[] for (_) in range(max_length)]
 
-    # Sāk ar īsām ķēdēm ar vienu operatoru
-    for (gate_qc) in gate_set:
-        U = Operator(gate_qc).data
-        short_circuits_by_len[0].append((gate_qc, U))
+    # 1 gate circuits
+    for gate_qc in gate_set:
+        u = Operator(gate_qc).data
+        groups_by_len[0].append((gate_qc, u))
 
-    # Visas iespējamās kombinācijas līdz max_length garumam
-    for (i) in range(1, max_length):
-        # Balstās tikai uz iepriekšējo līmeni
-        for (qc, _) in short_circuits_by_len[i-1].copy():
-            for (gate_qc) in gate_set:
+    # 2-Max gate circuits
+    for i in range(1, max_length):
+        # Builds on the previous level
+        for (qc, _) in groups_by_len[i-1].copy():
+            for gate_qc in gate_set:
                 name_list = qc.name.split(' ')
 
-                # Izvairās no diviem H pēc kārtas (jo H*H=I)
-                if (name_list[-1] == gate_qc.name == 'H'):
+                # H @ H = I
+                if name_list[-1] == gate_qc.name == 'H':
                     continue
 
-                # Izvairās no diviem pretējiem vārtiem pēc kārtas
-                # pretējo vārtu nosaukumā ir prefikss '-'
-                if (name_list[-1] == gate_qc.name[1:]) or (name_list[-1][1:] == gate_qc.name):
+                # V @ V.inv = I
+                # Inverse matrix names begin with '-'
+                if name_list[-1] == gate_qc.name[1:] or name_list[-1][1:] == gate_qc.name:
                     continue
 
-                # Izvairās no vairāk kā četrām T rotācijām pēc kārtas
-                if (gate_qc.name in ('T', '-T')) and (len(name_list) >= 4):
-                    if (gate_qc.name == name_list[-1] == name_list[-2] == name_list[-3] == name_list[-4]):
+                # No more than 4 T or T.inv in a row
+                # since the more would have a shorter form if using inverses
+                if gate_qc.name in ('T', '-T') and len(name_list) >= 4:
+                    if gate_qc.name == name_list[-1] == name_list[-2] == name_list[-3] == name_list[-4]:
                         continue
                 
                 new_qc = qc.compose(gate_qc, [0], inplace=False)
                 new_qc.name = qc.name + ' ' + gate_qc.name
-                new_U = Operator(new_qc).data
+                new_u = Operator(new_qc).data
 
-                short_circuits_by_len[i].append((new_qc, new_U))
+                groups_by_len[i].append((new_qc, new_u))
 
-    for (i) in range(max_length):
-        short_circuits.extend(short_circuits_by_len[i])
+    for i in range(max_length):
+        base_circuits.extend(groups_by_len[i])
 
-    return short_circuits
+    return base_circuits
 
 
-# Funkcija, kas ielādē īsās ķēdes no faila vai ģenerē jaunas:
-# pārbauda, vai eksistē saglabātie īso ķēžu dati, un tos ielādē no faila.
-# Ja neeksistē, ģenerē jaunus datus un saglabā tos failā.
-def load_short_circuits(gate_set: list[QuantumCircuit], max_length: int) -> list[tuple[QuantumCircuit, np.ndarray]]:
+# Function
+# Loads base circuits from file or generates new
+def load_base_circuits(gate_set: list[QuantumCircuit], max_length: int) -> list[tuple[QuantumCircuit, np.ndarray]]:
     filename = ""
     for (gate) in gate_set:
         filename += gate.name + "_"
@@ -92,27 +93,26 @@ def load_short_circuits(gate_set: list[QuantumCircuit], max_length: int) -> list
 
     if os.path.exists(file_path):
         with open(file_path, 'rb') as f:
-            print("Ielādē īsās ķēdes no faila:", filename)
-            short_circuits = pickle.load(f)
+            base_circuits = pickle.load(f)
     else:
-        print("Ģenerē jaunas īsās ķēdes un saglabā failā:", filename)
-        short_circuits = generate_short_circuits(gate_set, max_length)
+        base_circuits = generate_base_circuits(gate_set, max_length)
         with open(file_path, 'wb') as f:
-            pickle.dump(short_circuits, f)
+            pickle.dump(base_circuits, f)
 
-    return short_circuits
+    return base_circuits
 
 
-# Funkcija, kas veic rotāciju dekompozīciju 1 kubitam
+# Function
+# 1 qubit rotation decomposition:
 # U = exp(i alpha) Rz(beta) H Rz(gamma) H Rz(delta)
-def rotation_decomposition(U_target: np.ndarray) -> tuple[QuantumCircuit, np.float64]:
+def rotation_decomposition(u_target: np.ndarray) -> tuple[QuantumCircuit, np.float64]:
 
-    R, alpha = remove_global_phase(U_target)
+    r, alpha = remove_global_phase(u_target)
 
-    gamma = 2 * np.arccos(abs(R[0, 0]))
+    gamma = 2 * np.arccos(abs(r[0, 0]))
 
-    main_d = np.angle(R[1, 1]) - np.angle(R[0, 0])
-    off_d = np.angle(R[1, 0]) - np.angle(R[0, 1])
+    main_d = np.angle(r[1, 1]) - np.angle(r[0, 0])
+    off_d = np.angle(r[1, 0]) - np.angle(r[0, 1])
     beta = (main_d + off_d) / 2
     delta = (main_d - off_d) / 2
 
@@ -128,229 +128,249 @@ def rotation_decomposition(U_target: np.ndarray) -> tuple[QuantumCircuit, np.flo
 
     qc.global_phase = alpha
 
-    return (qc, compare_su2(U_target, Operator(qc).data))
+    return qc, compare_su2(u_target, Operator(qc).data)
 
 
-# Funkcija, kas implementē Soloveja-Kitajeva dekompozīcijas algoritmu 1 kubitam
-def solovay_kitaev_decomposition(U_target: np.ndarray, depth: int, short_circuits: list[tuple[QuantumCircuit, np.ndarray]], progress) -> tuple[QuantumCircuit, np.float64, list[QuantumCircuit]]:
+# Function
+# Solovay-Kitaev algorithm for 1 qubit
+def solovay_kitaev_decomposition(u_target: np.ndarray,
+                                 depth: int,
+                                 base_circuits: list[tuple[QuantumCircuit, np.ndarray]],
+                                 progress
+                                 ) -> tuple[QuantumCircuit, np.float64, list[QuantumCircuit]]:
 
-    if (depth == 0):
-        qc, error = base_approximation(U_target, short_circuits)
+    if depth == 0:
+        qc, error = base_approximation(u_target, base_circuits)
         progress[2] += 1
         progress[0].progress(progress[2] / progress[1])
-        return (qc, error, [qc.copy()])
+        return qc, error, [qc.copy()]
     
-    qc, _, history = solovay_kitaev_decomposition(U_target, depth-1, short_circuits, progress)
+    qc, _, history = solovay_kitaev_decomposition(u_target, depth - 1, base_circuits, progress)
 
-    # Ja operatori it faktiski vienādi, atgriež to, kas ir
-    if (compare_su2(U_target, Operator(qc).data) < 1e-10):
-        return (qc, np.float64(0.), history)
+    # If operators are basically the same
+    if compare_su2(u_target, Operator(qc).data) < 1e-10:
+        return qc, np.float64(0.), history
 
-    U_approx = Operator(qc).data
-    A, B = gc_decomposition(U_target @ U_approx.conj().T)
+    u_approx = Operator(qc).data
+    v, w = balanced_group_commutator(u_target @ u_approx.conj().T)
 
-    qc_A, _, _ = solovay_kitaev_decomposition(A, depth-1, short_circuits, progress)
-    qc_B, _, _ = solovay_kitaev_decomposition(B, depth-1, short_circuits, progress)
-    qc_A_inv = qc_A.inverse()
-    qc_B_inv = qc_B.inverse()
+    qc_v, _, _ = solovay_kitaev_decomposition(v, depth - 1, base_circuits, progress)
+    qc_w, _, _ = solovay_kitaev_decomposition(w, depth - 1, base_circuits, progress)
 
-    # Papildina ķēdi ar komutatoru
-    qc.compose(qc_B_inv, [0], inplace=True)
-    qc.compose(qc_A_inv, [0], inplace=True)
-    qc.compose(qc_B, [0], inplace=True)
-    qc.compose(qc_A, [0], inplace=True)
+    # Extends the circuit with the BCG
+    qc.compose(qc_w.inverse(), [0], inplace=True)
+    qc.compose(qc_v.inverse(), [0], inplace=True)
+    qc.compose(qc_w, [0], inplace=True)
+    qc.compose(qc_v, [0], inplace=True)
 
+    # For review
     history.append(qc.copy())
     progress[2] += 1
     progress[0].progress(progress[2] / progress[1])
 
-    return (qc, compare_su2(U_target, Operator(qc).data), history)
+    return qc, compare_su2(u_target, Operator(qc).data), history
 
-# Funkcija, kas implementē Soloveja-Kitajeva dekompozīcijas reverso algoritmu 1 kubitam,
-# lai sasniegtu dotu precizitāti epsilon
-def solovay_kitaev_reverse(U_target: np.ndarray, qc: QuantumCircuit, epsilon: float, short_circuits: list[tuple[QuantumCircuit, np.ndarray]], progress, depth: int = 0, max_depth: int = 7) -> tuple[QuantumCircuit, np.float64, list[QuantumCircuit]]:
 
-    U = Operator(qc).data
-    if compare_su2(U_target, U) < epsilon:
-        return (qc, compare_su2(U_target, Operator(qc).data), [qc.copy()])
+# Function
+# Reverses the first recursion branch of Solovay-Kitaev algorithm
+# to increase the recursion level until the given precision
+def solovay_kitaev_reverse(u_target: np.ndarray,
+                           qc: QuantumCircuit,
+                           epsilon: float,
+                           base_circuits: list[tuple[QuantumCircuit, np.ndarray]],
+                           progress,
+                           depth: int = 0,
+                           max_depth: int = 7
+                           ) -> tuple[QuantumCircuit, np.float64, list[QuantumCircuit]]:
+
+    u = Operator(qc).data
+    if compare_su2(u_target, u) < epsilon:
+        return qc, compare_su2(u_target, Operator(qc).data), [qc.copy()]
 
     if depth >= max_depth:
-        return qc, compare_su2(U_target, Operator(qc).data), [qc.copy()]
+        return qc, compare_su2(u_target, Operator(qc).data), [qc.copy()]
 
-    A, B = gc_decomposition(U_target @ U.conj().T)
+    v, w = balanced_group_commutator(u_target @ u.conj().T)
 
-    qc_A, _, _ = solovay_kitaev_decomposition(A, depth, short_circuits, progress)
-    qc_B, _, _ = solovay_kitaev_decomposition(B, depth, short_circuits, progress)
-    qc_A_inv = qc_A.inverse()
-    qc_B_inv = qc_B.inverse()
+    qc_v, _, _ = solovay_kitaev_decomposition(v, depth, base_circuits, progress)
+    qc_w, _, _ = solovay_kitaev_decomposition(w, depth, base_circuits, progress)
 
     qc_historic = qc.copy()
 
-    # Papildina ķēdi ar komutatoru
-    qc.compose(qc_B_inv, [0], inplace=True)
-    qc.compose(qc_A_inv, [0], inplace=True)
-    qc.compose(qc_B, [0], inplace=True)
-    qc.compose(qc_A, [0], inplace=True)
+    # Extends the circuit with BCG
+    qc.compose(qc_w.inverse(), [0], inplace=True)
+    qc.compose(qc_v.inverse(), [0], inplace=True)
+    qc.compose(qc_w, [0], inplace=True)
+    qc.compose(qc_v, [0], inplace=True)
 
     progress[2] += 1
     progress[0].progress(progress[2] / progress[1])
 
-    result = solovay_kitaev_reverse(U_target, qc, epsilon, short_circuits, progress, depth + 1, max_depth)
+    result = solovay_kitaev_reverse(u_target, qc, epsilon, base_circuits, progress, depth + 1, max_depth)
     result[2].insert(0, qc_historic)
 
     return result
 
-# Funkcija, kas atrod īsāko ķēdi no dotā saraksta, kas vislabāk aproksimē doto operatoru
-def base_approximation(U_target: np.ndarray, short_circuits: list[tuple[QuantumCircuit, np.ndarray]]) -> tuple[QuantumCircuit, np.float64]:
+# Function
+# Finds the best approximation from a pre-made list of base circuits
+def base_approximation(u_target: np.ndarray, base_circuits: list[tuple[QuantumCircuit, np.ndarray]]) -> tuple[QuantumCircuit, np.float64]:
     min_error = np.float64('inf')
-    best_circuit = short_circuits[0][0].copy()
+    best_circuit = base_circuits[0][0].copy()
 
-    for (entry) in short_circuits:
-        error = compare_su2(U_target, entry[1])
-        if (error < min_error):
+    for entry in base_circuits:
+        error = compare_su2(u_target, entry[1])
+        if error < min_error:
             min_error = error
             best_circuit = entry[0].copy()
 
-    return best_circuit, min_error # atgriež QuantumCircuit un kļūdu
+    return best_circuit, min_error # QuantumCircuit and error
 
 
-# Funkcija, kas nosaka divus tādus unitārus operatorus A un B, ka U = ABA⁺B⁺,
-# izmantojot metodi no informācijas avota
-def gc_decomposition(U_target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+# Function
+# Finds A and B such that U = ABA⁺B⁺,
+# Method described in Dawson & Nielsen paper
+def balanced_group_commutator(u_target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
-    # Noņem globālo fāzi
-    U, _ = remove_global_phase(U_target)
+    # Remove global phase
+    u, _ = remove_global_phase(u_target)
 
-    # Izvelk rotācijas asi un leņķi
-    _, U_th = extract_axis_angle(U)
+    # Extract rotation angle
+    _, u_th = extract_axis_angle(u)
 
-    # Rotācijas V un W
+    # Builds rotations V and W
     # U = S(VWV⁺W⁺)S⁺
-    phi = 2 * np.arcsin(((1 - np.cos(U_th / 2)) / 2) ** 0.25)
+    phi = 2 * np.arcsin(((1 - np.cos(u_th / 2)) / 2) ** 0.25)
 
-    X_xs = np.array([1, 0, 0])
-    Y_xs = np.array([0, 1, 0])
+    x_axis = np.array([1, 0, 0])
+    y_axis = np.array([0, 1, 0])
 
-    V = rotation_matrix(X_xs, phi)
-    W = rotation_matrix(Y_xs, phi)
-    Com = V @ W @ V.conj().T @ W.conj().T
+    v = rotation_matrix(x_axis, phi)
+    w = rotation_matrix(y_axis, phi)
+    com = v @ w @ v.conj().T @ w.conj().T
 
-    # Atrisina vienādojumu S * (VWV⁺W⁺) * S⁺ = U
-    S = solve_unitary_conjugate(U, Com)
-    S, _ = remove_global_phase(S)
+    # Solves S(VWV⁺W⁺)S⁺ = U
+    s = solve_unitary_conjugate(u, com)
+    s, _ = remove_global_phase(s)
 
-    A = S @ V @ S.conj().T
-    B = S @ W @ S.conj().T
+    v_sol = s @ v @ s.conj().T
+    w_sol = s @ w @ s.conj().T
     
-    return (A, B)
+    return v_sol, w_sol
 
-# Funkcija, kas atrisina V = S W S⁺
-# atrod atbilstošo S, ja ir zināmi V un W
-def solve_unitary_conjugate(V: np.ndarray, W: np.ndarray) -> np.ndarray:
-    eigvals_V, S_V = np.linalg.eig(V)
-    eigvals_W, S_W = np.linalg.eig(W)
+# Function
+# Solves V = S W S⁺ for S
+def solve_unitary_conjugate(v: np.ndarray, w: np.ndarray) -> np.ndarray:
+    eigvals_v, s_v = np.linalg.eig(v)
+    eigvals_w, s_w = np.linalg.eig(w)
 
-    # īpašvērtībām jāskarīt, bet tās var būt dažādā secībā
-    if not np.allclose(eigvals_V[0], eigvals_W[0]):
-        eigvals_W = eigvals_W[::-1]
-        S_W = S_W[:, ::-1]
-    if not np.allclose(eigvals_V, eigvals_W, atol=1e-10):
-        raise ValueError("Īpašvērtības nesakrīt.")
+    # Eigenvalues should match, but their order may be different
+    if not np.allclose(eigvals_v[0], eigvals_w[0]):
+        eigvals_w = eigvals_w[::-1]
+        s_w = s_w[:, ::-1]
+    if not np.allclose(eigvals_v, eigvals_w, atol=1e-10):
+        raise ValueError("Eigenvalues do not match")
     
-    S = S_V @ S_W.conj().T
-    return S
+    s = s_v @ s_w.conj().T
+    return s
 
 
-# Funkcija, kas izvelk rotācijas asi un leņķi no SU(2) operatora
-def extract_axis_angle(R: np.ndarray) -> tuple[np.ndarray, np.float64]:
-    # Pārbauda, vai R pieder SU(2)
-    if not np.isclose(np.linalg.det(R), 1, atol=1e-10):
-        raise ValueError("Operators nav SU(2) grupa.")
+# Function
+# Extracts rotation axis and angle from an SU(2) gate
+def extract_axis_angle(r: np.ndarray) -> tuple[np.ndarray, np.float64]:
+    # Checks if SU(2)
+    if not np.isclose(np.linalg.det(r), 1, atol=1e-10):
+        raise ValueError("Operator not in SU(2)")
 
-    # Aprēķina leņķi
-    trace = np.trace(R)
+    # Computes angle
+    trace = np.trace(r)
     theta = np.arccos(np.real(trace) / 2) * 2
 
-    # Ja leņķis ir tuvu nullei, atgriež standarta asi un nulles leņķi
+    # If angle is negligible
     if np.isclose(theta, 0, atol=1e-12):
-        return (np.array([1, 0, 0]), np.float64(0.))
+        return np.array([1, 0, 0]), np.float64(0.)
 
-    # Aprēķina rotācijas asi
-    A = (R - np.cos(theta / 2) * I) / (-1j * np.sin(theta / 2))
-    nx = np.real(A[1, 0])
-    ny = np.imag(A[1, 0])
-    nz = np.real(A[0, 0])
+    # Computes axis
+    a = (r - np.cos(theta / 2) * I) / (-1j * np.sin(theta / 2))
+    nx = np.real(a[1, 0])
+    ny = np.imag(a[1, 0])
+    nz = np.real(a[0, 0])
     axis = np.array([nx, ny, nz]) / np.linalg.norm([nx, ny, nz])
 
-    return (axis, theta)
+    return axis, theta
 
 
-# Funkcija, kas izveido SU(2) rotācijas matricu
+# Function
+# Builds a rotation from axis and angle
 def rotation_matrix(axis: np.ndarray, theta: float | np.float64) -> np.ndarray:
     return expm(-1j * theta / 2 * (axis[0] * X + axis[1] * Y + axis[2] * Z))
 
 
-# Funkcija, kas sadala unitāro operatoru
-# globālajā fāzē un SU(2) daļā
-def remove_global_phase(U: np.ndarray) -> tuple[np.ndarray, np.float64]:
-    phase = np.angle(np.linalg.det(U)) / 2
-    V = U / np.exp(1j * phase)
-    W, _ = polar(V)
-    if np.linalg.det(W) < 0:
-        W = -W
+# Function
+# Self-explanatory?
+def remove_global_phase(u: np.ndarray) -> tuple[np.ndarray, np.float64]:
+    phase = np.angle(np.linalg.det(u)) / 2
+    v = u / np.exp(1j * phase)
+    w, _ = polar(v)
+    if np.linalg.det(w) < 0:
+        w = -w
         phase += np.pi
-    return W, phase
+    return w, phase
 
 
-# Funkcija, kas pievieno globālo fāzi
-def add_global_phase(U, phase):
-    return U * np.exp(1j * phase)
+# Function
+# Self-explanatory?
+def add_global_phase(u, phase):
+    return u * np.exp(1j * phase)
 
 
-# Funkcija, kas salīdzina divus operatorus up to globālās fāzes
-def compare_su2(U1: np.ndarray, U2: np.ndarray) -> np.float64:
-    U1, _ = remove_global_phase(U1)
-    U2, _ = remove_global_phase(U2)
-    return min(np.linalg.norm(U1 - U2, 2), np.linalg.norm(U1 + U2, 2))
-
-# Funkcija, kas aprēķina nepieciešamo Soloveja-Kitaeva dekompozīcijas dziļumu,
-# lai sasniegtu dotu precizitāti, pēc formulas no avota.
-# Neder biežāk lietojamiem gadījumiem. NETIEK LIETOTA
-def approximate_depth(U_target: np.ndarray, target_error: float, short_circuits: list[tuple[QuantumCircuit, np.ndarray]]) -> int | None:
-
-    U, _ = remove_global_phase(U_target)
-
-    qc_approx = base_approximation(U, short_circuits, None)
-    U_approx = Operator(qc_approx).data
-
-    error = compare_su2(U, U_approx)
-    c_approx = 4 * np.sqrt(2)
-
-    if error < 1 / 32:
-        n = 0
-        while error > target_error:
-            error = c_approx * error ** 1.5
-            n += 1
-        return n
-    
-    return None
+# Function
+# Compares two gates without global phase
+def compare_su2(v: np.ndarray, w: np.ndarray) -> np.float64:
+    v, _ = remove_global_phase(v)
+    w, _ = remove_global_phase(w)
+    return min(np.linalg.norm(v - w, 2), np.linalg.norm(v + w, 2))
 
 
-# Funkcija, kas pārbauda, vai dotā matrica ir unitāra
-def is_unitary(U: np.ndarray, tol: float = 1e-10) -> bool:
-    return np.allclose(U.conj().T @ U, np.eye(U.shape[0]), atol=tol)
+# UNUSED : not applicable with the starting precision of usable base circuits
+# Function
+# Finds the necessary recursion depths to achieve the given precision
+
+# def approximate_depth(u_target: np.ndarray, target_error: float, base_circuits: list[tuple[QuantumCircuit, np.ndarray]]) -> int | None:
+#
+#     u, _ = remove_global_phase(u_target)
+#
+#     qc_approx = base_approximation(u, base_circuits)
+#     u_approx = Operator(qc_approx).data
+#
+#     error = compare_su2(u, u_approx)
+#     c_approx = 4 * np.sqrt(2)
+#
+#     if error < 1 / 32:
+#         n = 0
+#         while error > target_error:
+#             error = c_approx * error ** 1.5
+#             n += 1
+#         return n
+#
+#     return None
 
 
-# Funkcija, kas pielāgo U matricas globālo fāzi tā,
-# lai tā sakristu ar target matricas globālo fāzi
-def align_phase(U: np.ndarray, target: np.ndarray) -> np.ndarray:
+# Function
+# Self-explanatory?
+def is_unitary(u: np.ndarray, tol: float = 1e-10) -> bool:
+    return np.allclose(u.conj().T @ u, np.eye(u.shape[0]), atol=tol)
+
+
+# Function
+# Matches the global phase of U to Target
+def align_phase(u: np.ndarray, target: np.ndarray) -> np.ndarray:
     target_phase = np.angle(np.linalg.det(target)) / 2
-    V, _ = remove_global_phase(U)
+    V, _ = remove_global_phase(u)
     return add_global_phase(V, target_phase)
 
 
-# Testa bloks
+# Testing
 if __name__ == "__main__":
-    gate_set = create_h_t_gate_set()
+    gate_set = ht_gate_set()
     max_length = 10
-    short_circuits = load_short_circuits(gate_set, max_length)
+    short_circuits = load_base_circuits(gate_set, max_length)
