@@ -6,3 +6,4 @@ qiskit==2.2.1
 matplotlib==3.10.7
 pylatexenc==2.10
 scikit_learn==1.6.1
+sympy
