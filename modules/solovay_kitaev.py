@@ -1,13 +1,14 @@
 import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.quantum_info import Operator
 from sklearn.neighbors import BallTree
 
 import os
 import pickle
+import logging
+from pathlib import Path
 
 from modules.decomposition import balanced_group_commutator
-from modules.utils import compare_su2, build_cnot, vectorize_unitary, inverse_circuit, compose_circuit_gate
+from modules.utils import compare_su2, build_cnot, vectorize_unitary, inverse_circuit, compose_circuit_gate, \
+    remove_global_phase
 
 
 def initialise_gates(n: int, *gate_names: str) -> dict[str, np.ndarray]:
@@ -57,8 +58,9 @@ def initialise_gates(n: int, *gate_names: str) -> dict[str, np.ndarray]:
             for _ in range(i + 1, n):
                 m = np.kron(m, eye)
 
-            gate_dict[name + "." + str(i)] = m.copy()
+            gate_dict[name + "." + str(i)], _ = remove_global_phase(m)
 
+    logging.info(f"Initialised gate set of {len(gate_dict)} matrices.")
     return gate_dict
 
 
@@ -75,6 +77,7 @@ def generate_basic_circuits(gate_dict: dict[str, np.ndarray], l: int) -> list[tu
     :param l: maximum length
     :return: list of pairs of circuit matrix form, and gate name sequence as string
     """
+    logging.info("Building basic circuits from scratch...")
     basic_circuits = []
     current_level = []
 
@@ -86,18 +89,20 @@ def generate_basic_circuits(gate_dict: dict[str, np.ndarray], l: int) -> list[tu
     for i in range(1, l + 1):
         next_level = []
         for u, seq in current_level:
-            last_gate = seq.split(' ')[-1] # reminder: gate names are: single capital letter + (dg) + . + qubit
+            last_gate = seq.split()[-1] # reminder: gate names are: (C) + single capital letter + (dg) + . + qubit
 
             for new_gate, gate_u in gate_dict.items():
                 is_new, new_seq = compose_circuit_gate(seq, new_gate)
 
                 if is_new:
-                    print(new_seq)
+                    # print(new_seq)
                     next_level.append((gate_u @ u, new_seq))
 
+        logging.info(f"\t\tLevel {i+1}: {len(next_level)} circuits")
         basic_circuits.extend(next_level)
         current_level = next_level
 
+    logging.info("Circuit generation complete!")
     return basic_circuits
 
 
@@ -113,22 +118,32 @@ def load_basic_circuits(n: int, l: int, *gate_names) -> list[tuple[np.ndarray, s
     :param gate_names: names of gates in the gate set
     :return: list of pairs of circuit matrix form, and gate name sequence as string
     """
+    logging.info(f"Loading basic circuits for {n} qubits up to length {l} with gate set {gate_names}...")
     filename = ""
     gates_sorted = sorted(gate_names)
     for gate in gates_sorted:
         filename += gate + "_"
     filename += f"q{n}_mxl{l}.pkl"
-    file_path = os.path.join("../pickles", filename)
 
+    root_dir = Path(__file__).resolve().parent.parent
+    pickle_dir = root_dir / "pickles"
+    pickle_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = pickle_dir / filename
+
+    logging.info(f"Looking up file: {file_path}")
     if os.path.exists(file_path):
         with open(file_path, 'rb') as f:
             basic_circuits = pickle.load(f)
     else:
+        logging.info("No file found.")
         gate_dict = initialise_gates(n, *gate_names)
         basic_circuits = generate_basic_circuits(gate_dict, l)
+        logging.info("Saving...")
         with open(file_path, 'wb') as f:
             pickle.dump(basic_circuits, f)
 
+    logging.info(f"{len(basic_circuits)} basic circuits loaded successfully!\n")
     return basic_circuits
 
 
@@ -148,6 +163,10 @@ def solovay_kitaev_decomposition(u_target: np.ndarray,
     :return:
     """
 
+    _, phi = remove_global_phase(u_target)
+    logging.info(f"SK Algorithm, recursion level {depth}:")
+    logging.info(f"Phase: {phi}")
+
     if depth == 0:
         u_approx, seq = base_approximation(u_target, base, tree)
         progress[2] += 1
@@ -158,7 +177,7 @@ def solovay_kitaev_decomposition(u_target: np.ndarray,
 
     # If operators are basically the same
     if compare_su2(u_target, u_approx) < 1e-10:
-        return u_approx, seq, [seq]
+        return u_approx, seq, history
 
     v, w = balanced_group_commutator(u_target @ u_approx.conj().T)
 
@@ -166,8 +185,8 @@ def solovay_kitaev_decomposition(u_target: np.ndarray,
     w, seq_w, _ = solovay_kitaev_decomposition(w, depth - 1, base, tree, progress)
 
     # Extends the circuit with the BCG
-    seq = inverse_circuit(seq_w) + inverse_circuit(seq_v) + seq_w + seq_v + seq
-    u_approx = u_approx @ v @ w @ v.conj().T @ w.conj().T
+    seq = " ".join([seq, inverse_circuit(seq_w), inverse_circuit(seq_v), seq_w, seq_v])
+    u_approx, _ = remove_global_phase(v @ w @ v.conj().T @ w.conj().T @ u_approx)
 
     # For review
     history.append(seq)
@@ -219,7 +238,8 @@ def solovay_kitaev_decomposition(u_target: np.ndarray,
 
 def base_approximation(u_target: np.ndarray,
                        base: list[tuple[np.ndarray, str]],
-                       tree: BallTree)\
+                       tree: BallTree,
+                       k: int = 50)\
         -> tuple[np.ndarray, str]:
     """
     Vectorizes a target unitary and finds the closest match in the Ball Tree.
@@ -227,19 +247,45 @@ def base_approximation(u_target: np.ndarray,
     :param u_target:
     :param base:
     :param tree:
+    :param k:
     :return:
     """
+    best_seq = None
+    best_u = None
+    min_error = float('inf')
+
+    logging.info("BallTree search...")
     target_vec = vectorize_unitary(u_target)
     query_point = target_vec.reshape(1, -1)
-    dist, ind = tree.query(query_point, k=1)
-    closest_idx = ind[0][0]
-    # approximation_distance = dist[0][0]
-    closest_u, closest_seq = base[closest_idx]
+    ind = tree.query(query_point, k=k, return_distance=False)
 
-    return closest_u, closest_seq
+    # The BallTree uses Frobenius norm to find the nearest neighbours,
+    # but the closest 2-norm is approximately near the best Frobenius
+
+    for idx in ind[0]:
+        candidate_u, candidate_seq = base[idx]
+
+        error = compare_su2(candidate_u, u_target)
+
+        if error < min_error:
+            min_error = error
+            best_seq = candidate_seq
+            best_u = candidate_u
+
+    # logging.info("Linear search...")
+    # for candidate_u, candidate_seq in base:
+    #     error = compare_su2(candidate_u, u_target)
+    #
+    #     if error < min_error:
+    #         min_error = error
+    #         best_seq = candidate_seq
+    #         best_u = candidate_u
+
+    logging.info(f"Found best approximation from {k} candidates at distance: {compare_su2(u_target, best_u)} - {best_seq}")
+    return best_u, best_seq
 
 
 # Testing
 if __name__ == "__main__":
-    base = load_basic_circuits(2, 3, "H", "T", "Tdg", "CNOT")
+    base = load_basic_circuits(1, 12, "H", "T", "Tdg")
     # print([x for _, x in base])

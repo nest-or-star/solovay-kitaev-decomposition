@@ -1,6 +1,5 @@
 import re
-import numpy as np
-from sympy import pi, E, I, sin, cos, tan, sqrt, exp, log
+from sympy import pi, E, I, sin, cos, tan, sqrt, exp
 from sympy.core.function import AppliedUndef
 from sympy.parsing.sympy_parser import (
     parse_expr,
@@ -9,6 +8,7 @@ from sympy.parsing.sympy_parser import (
     convert_xor,
     function_exponentiation,
 )
+from modules import utils
 
 PARSE_NAMES = {
     "pi": pi,
@@ -83,24 +83,59 @@ import numpy as np
 def matrix_to_str(arr: np.ndarray) -> str:
 
     def format_complex(c: complex) -> str:
-        # Extract real and imaginary parts
         c_re, c_im = c.real, c.imag
 
         if c_im == 0:
-            return f"{c_re:.10g}"
+            return f"{c_re:.10f}"
         if c_re == 0:
-            return f"{c_im:.10g}*i"
+            return f"{c_im:.10f}*i"
 
-        # Use + or - sign appropriately to maintain valid syntax
         op = "+" if c_im >= 0 else "-"
-        return f"{re:.10g}{op}{abs(c_im):.10g}*i"
-
-    # Handle 1D and 2D arrays
-    if arr.ndim == 1:
-        return ",".join(format_complex(x) for x in arr)
+        return f"{c_re:.10f}{op}{abs(c_im):.10f}*i"
 
     lines = []
     for row in arr:
         lines.append(",".join(format_complex(x) for x in row))
 
     return "\n".join(lines)
+
+
+# Testing
+
+if __name__ == "__main__":
+    s = """exp(-i*pi/6),0
+    0,exp(i*pi/6)"""
+    rows = s.split("\n")
+    dim = len(rows)
+    u = np.zeros((dim, dim), dtype=complex)
+
+    if np.allclose(np.log2(dim) % 2, 0):
+        print("dim error")
+
+    else:
+        faulty = False
+        for i, row in enumerate(rows):
+            cells = row.split(',')
+
+            if len(cells) != dim:
+                print("dim error")
+                break
+
+            for j, cell in enumerate(cells):
+                try:
+                    result = parse_matrix_element_numeric(cell)
+                    u[i, j] = result
+                except MatrixElementParseError:
+                    print("parse error")
+                    faulty = True
+                    break
+
+            if faulty:
+                break
+
+        else:
+            if utils.is_unitary(u):
+                pass
+            else:
+                print("not unitary")
+    print(matrix_to_str(u))

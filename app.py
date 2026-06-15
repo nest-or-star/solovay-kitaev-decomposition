@@ -8,9 +8,10 @@ from sklearn.neighbors import BallTree
 from modules import solovay_kitaev as qd, parser as mp, decomposition, utils
 import json
 import os
+import logging
 
 from modules.parser import MatrixElementParseError
-from modules.utils import str_to_circuit
+from modules.utils import str_to_circuit, remove_global_phase, compare_su2
 
 
 def _loc(key: str) -> str:
@@ -42,6 +43,14 @@ def main() -> None:
     """
     Initialises the app.
     """
+    logging.basicConfig(
+        filename="app.log",
+        level=logging.INFO,
+        format="{asctime} - {levelname} - {message}",
+        style="{",
+        datefmt="%Y-%m-%d %H:%M:",
+    )
+
     load_target_unitary()
     load_language()
 
@@ -61,10 +70,11 @@ def load_target_unitary() -> None:
     if "u_target" not in st.session_state:
         st.session_state.u_target = np.eye(2, dtype=complex)
 
-# Function
-# Manages the choice of localization
+
 def load_language() -> None:
-    # Default is Latvian
+    """
+    Loads the language parameter and adds the selection box to the sidebar.
+    """
     if "lang" not in st.session_state:
         st.session_state["lang"] = "lv"
 
@@ -91,10 +101,10 @@ def load_sidebar() -> None:
 
     # Matrix viewing and editing
     with st.sidebar.expander(_loc("view_unitary")):
-        st.write(st.session_state.u_target)
+        # st.write(st.session_state.u_target)
 
         if st.button(_loc("edit")):
-            input_unitary(1)
+            input_unitary()
 
     # Rotation H+Rz decomposition mode
     if mode == _loc("rotation_h_rz"):
@@ -191,21 +201,24 @@ def launch_solovay_kitaev(epsilon: float|None,
     # Successfully launches decomposition
 
     dim = st.session_state.u_target.ndim
+    n = int(np.log2(dim))
 
     bar = st.progress(value=0.0)
     bar.progress(0.0, text=_loc("success_h_t"))
 
-    base = qd.load_basic_circuits(dim, max_length, "H", "T", "Tdg")
+    base = qd.load_basic_circuits(n, max_length, "H", "T", "Tdg")
     bar.progress(0.0, text=f"{_loc("loaded")} {len(base)} {_loc("short_circuits")}") # "Loaded X basic circuits"
 
-    vectors = np.array([utils.vectorize_unitary(item[0]) for item in base]) # Feed this to sklearn.neighbors.BallTree
+    vectors = np.array([utils.vectorize_unitary(item[0]) for item in base])
     tree = BallTree(vectors, leaf_size=40)
+
+    u_target_su2, _ = remove_global_phase(st.session_state.u_target)
 
     # Max error is given WIP
     if epsilon is not None:
         # progress_info = [bar, sum([3**i for i in range(7)]), 0] # progress bar + total steps + first step
-        # qc_0, _ = qd.base_approximation(st.session_state.u_target, base_circuits)
-        # qc, precision, history = qd.solovay_kitaev_reverse(st.session_state.u_target,
+        # qc_0, _ = qd.base_approximation(u_target_su2, base_circuits)
+        # qc, precision, history = qd.solovay_kitaev_reverse(u_target_su2,
         #                                                    qc_0, epsilon,
         #                                                    base_circuits, progress_info)
         return
@@ -213,14 +226,16 @@ def launch_solovay_kitaev(epsilon: float|None,
     # Recursion depth is given
     if recursion_depth is not None:
         progress_info = [bar, sum([3**i for i in range(recursion_depth+1)]), 0] # progress bar + total steps + first step
-        u_approx, seq, history_str = qd.solovay_kitaev_decomposition(st.session_state.u_target,
+        u_approx, seq, history_str = qd.solovay_kitaev_decomposition(u_target_su2,
                                                                  recursion_depth,
                                                                  base,
                                                                  tree,
                                                                  progress_info)
 
-    qc = str_to_circuit(seq, dim)
-    history = [str_to_circuit(x, dim) for x in history_str]
+    qc = str_to_circuit(seq, n)
+    history = [str_to_circuit(x, n) for x in history_str]
+
+    logging.info(f"Compare errors: {compare_su2(u_target_su2, u_approx)}, {compare_su2(u_target_su2, Operator(qc).data)}")
 
     st.success(_loc("success_sk"))
     st.session_state.qc = qc
@@ -283,7 +298,7 @@ def load_results() -> None:
         with st.expander(_loc("view_unitary")):
             u = utils.align_phase(Operator(qc).data, st.session_state.u_target)
             u = np.round(u, decimals=6) # rounds for readability
-            st.write(u)
+            # st.write(u)
 
     # If decomposition is not complete:
     else:
@@ -293,7 +308,7 @@ def load_results() -> None:
 # Function
 # Matrix editing pop-up window
 @st.dialog("Ievads / Input", width="medium")
-def input_unitary(num_qubits: int) -> None:
+def input_unitary() -> None:
     st.subheader(_loc("input_unitary"))
 
     # Input field
@@ -308,19 +323,19 @@ def input_unitary(num_qubits: int) -> None:
         dim = len(rows)
         u = np.zeros((dim, dim), dtype=complex)
 
-        if np.allclose(np.log2(dim) % 1, 0):
+        if np.allclose(np.log2(dim) % 2, 0):
             st.error(_loc("u_dim_error"))
 
         else:
             faulty = False
-            for (i, row) in enumerate(rows):
+            for i, row in enumerate(rows):
                 cells = row.split(',')
 
                 if len(cells) != dim:
                     st.error(_loc("u_dim_error"))
                     break
 
-                for (j, cell) in enumerate(cells):
+                for j, cell in enumerate(cells):
                     try:
                         result = mp.parse_matrix_element_numeric(cell)
                         u[i, j] = result

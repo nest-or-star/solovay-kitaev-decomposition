@@ -107,17 +107,17 @@ def align_phase(u: np.ndarray, target: np.ndarray) -> np.ndarray:
     return add_global_phase(v, target_phase)
 
 
-def eckart_young(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    u_a, a_derived, vh_a = np.linalg.svd(a)
-    idx = np.linalg.matrix_rank(a)
-    d = a_derived[:idx, :idx]
-
-    b_derived = u_a.conj().T @ b @ vh_a.conj().T
-
-    pass
-
-def kron_factor():
-    pass
+# def eckart_young(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+#     u_a, a_derived, vh_a = np.linalg.svd(a)
+#     idx = np.linalg.matrix_rank(a)
+#     d = a_derived[:idx, :idx]
+#
+#     b_derived = u_a.conj().T @ b @ vh_a.conj().T
+#
+#     pass
+#
+# def kron_factor():
+#     pass
 
 def vectorize_unitary(matrix):
     """
@@ -125,7 +125,12 @@ def vectorize_unitary(matrix):
     For a 2x2 complex matrix, this returns an 8-dimensional real vector.
     """
     flat = matrix.flatten()
-    return np.concatenate((np.real(flat), np.imag(flat)))
+    idx = np.argmax(np.abs(flat) > 1e-5)
+    phase_angle = np.angle(flat[idx])
+    canonical_matrix = matrix * np.exp(-1j * phase_angle)
+    canon_flat = canonical_matrix.flatten()
+    return np.concatenate((np.real(canon_flat), np.imag(canon_flat)))
+
 
 def build_cnot(n: int, i: int, j: int) -> np.ndarray:
     """
@@ -204,35 +209,21 @@ def str_to_circuit(seq: str, n: int) -> QuantumCircuit:
     return qc
 
 
-def expand_circuit_str(seq: str, n: int) -> list[list[str]]:
-
-    circuit = seq.split()
-    regs = [[] for _ in range(n)]
-
-    for gate in circuit:
-        name, qubit = gate.split('.', 1)
-
-        if name[0] == "C":
-            control, target = qubit.split('.')
-            regs[int(control)].append("C." + target)
-            regs[int(target)].append(name[1:] + "." + control)
-
-        else:
-            regs[int(qubit)].append(name)
-
-    return regs
-
-
 def compose_circuit_gate(seq: str, gate: str) -> tuple[bool, str]:
 
     _, qubit = gate.split('.', 1)
 
     if gate[0] == "C":
         qubit = qubit.split('.')[-1] # target qubit
+    else:
+        gates = seq.split()
+        if gates[-1][0] != "C":
+            if int(gates[-1].split('.')[-1]) > int(qubit):
+                return False, seq # gates in string form must be ordered by qubit number
 
     gates = list(filter(lambda s : s.endswith('.' + qubit), seq.split())) # filters out only target register
-    print(gates, gate)
-    if len(gates) > 1:
+    # print(gates, gate)
+    if len(gates) >= 1:
         # H @ H = X @ X = I
         if gates[-1] == gate and ("H" in gate or "X" in gate):
             return False, seq
@@ -240,7 +231,7 @@ def compose_circuit_gate(seq: str, gate: str) -> tuple[bool, str]:
         if gates[-1] == gate.replace("dg", "") or gates[-1].replace("dg", "") == gate:
             return False, seq
 
-    if len(gates) > 4:
+    if len(gates) >= 4:
         # T @ T @ T @ T = Tdg @ Tdg @ Tdg @ Tdg
         if gate == gates[-1] == gates[-2] == gates[-3] == gates[-4] and "T" in gate:
             return False, seq
@@ -251,3 +242,4 @@ def compose_circuit_gate(seq: str, gate: str) -> tuple[bool, str]:
 # Testing
 if __name__ == "__main__":
     print(build_cnot(3, 0, 1))
+    print(compose_circuit_gate("H.0 H.1 Tdg.1 H.1", "T.0"))
